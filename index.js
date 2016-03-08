@@ -5,14 +5,13 @@ var _ = require('lodash'),
     uuid = require('node-uuid'),
     amqp = require('amqp'),
     bacon = require('baconjs'),
-    EventEmitter = require('events'),
-    backchannelGenerator = require('./lib/backchannel');
+    EventEmitter = require('events');
 
-var notImplemented = function(){ throw(new Error('Not Implemented')); }
+var notImplemented = function(){ throw(new Error('Not Implemented')); };
 
 var Constructor = function(config){
 
-    var backChannelId = _.template('shibuya-backchannel-<%-uuid%>')({ uuid: uuid.v4() }),
+    var backchannelId = _.template('shibuya-backchannel-<%-uuid%>')({ uuid: uuid.v4() }),
         exchangeId = ["shibuya", config["exchange_id"] || "exchange"].join('-');
 
     // Create generic connection property
@@ -22,10 +21,12 @@ var Constructor = function(config){
 
     var exchangeProperty = connectionProperty.flatMap(function(connection){
         return bacon.fromCallback(connection.exchange.bind(connection, exchangeId, { type: "topic", autoDelete: true, durable: false }));
-    }).toProperty().log('Exchange');
+    }).toProperty();
 
     // Create backchannel
-    var backchannelStream = backchannelGenerator(connectionProperty, backChannelId);
+    var backchannelStream =  connectionProperty
+        .flatMap(function(connection){ console.log('Creating Backchannel Queue'); return bacon.fromCallback(connection.queue.bind(connection, backchannelId, { exclusive: true })); })
+        .flatMap(function(queue){ return bacon.fromBinder(function(sink){ queue.subscribe({ exclusive: true, ack: false }, function(){ sink(_.zipObject(["message", "headers", "deliveryInfo", "messageObject"], arguments)); }); }); });
 
     // Create calling pipeline
     bacon
@@ -33,18 +34,26 @@ var Constructor = function(config){
             this.call = function(serviceIdentifier, options, callback){
                 sink({
                     serviceIdentifier: serviceIdentifier,
-                    options: options,
+                    options: options || {},
                     callback: callback
                 });
             };
         }.bind(this))
-        .combine(connectionProperty, function(call, connection){
-            return _.assign(call, { connection: connection, callId: uuid.v4() })
-        })
+        .combine(exchangeProperty, function(call, exchange){ return _.assign(call, { exchange: exchange, callId: uuid.v4() }); })
         .flatMap(function(call){
+            // Send the message out
+            call["exchange"].publish(["shibuya", call["serviceIdentifier"]].join('-'), call["options"], {
+                contentType: "application/json",
+                deliveryMode: 1,
+                replyTo: backchannelId,
+                correlationId: call["callId"]
+            });
 
+            return backchannelStream.filter(function(message){
+                return message["deliveryInfo"]["correlationId"] === call["callId"]
+            }).take(1);
         })
-        //.log();
+        .log();
 };
 
 util.inherits(Constructor, EventEmitter);
