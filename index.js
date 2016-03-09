@@ -62,6 +62,56 @@ var Constructor = function(config){
             // Return a response to caller
             res["call"]["callback"]((res["status"] !== "ok" && new Error(res["status"])) || null, res["message"]);
         });
+
+
+    // Create service pipeline
+
+    bacon.combineTemplate({
+        exchange: exchangeProperty,
+        connection: connectionProperty,
+        registration: bacon.fromBinder(function(sink){
+            this.register = function(serviceIdentifier, instance){
+                sink({
+                    serviceIdentifier: serviceIdentifier,
+                    instance: instance
+                });
+            };
+        }.bind(this))
+    }).flatMap(function(request){
+        return bacon.combineTemplate({
+            queue: bacon.fromCallback(
+                request["connection"].queue.bind(
+                    request["connection"],
+                    ["shibuya", "service", request["registration"]["serviceIdentifier"]].join('-'), { ack: false }
+                )
+            ).map(function(queue){
+                // Binds the service queue to topic "shibuya-serviceIdentifier"
+                queue.bind(request["exchange"], ["shibuya", ["shibuya", request["registration"]["serviceIdentifier"]].join('-')]);
+                return queue;
+            })
+        });
+    }).log();
+
+    /*bacon
+        .fromBinder(function(sink){
+            ;
+        }.bind(this))
+        .combine(connectionProperty, function(serviceRequest, connection){
+            return _.assign(serviceRequest, { connection: connection })
+        })
+        .flatMap(function(serviceRequest){
+            // Create/Join service queue
+            return bacon.fromCallback(
+                serviceRequest["connection"].queue.bind(
+                    serviceRequest["connection"],
+                    ["shibuya", "service", serviceRequest["serviceIdentifier"]].join('-'),
+                    { exclusive: false }
+                )).flatMap(function(queue){
+                    bacon.fromBinder(function(sink){
+                        queue.subscribe({ ack: false }, function(){ sink(_.zipObject(["message", "headers", "deliveryInfo", "messageObject"], arguments)); })
+                    });
+                });
+        }).log('Service Queue Created');*/
 };
 
 util.inherits(Constructor, EventEmitter);
