@@ -1,6 +1,6 @@
 {
   "name": "shibuya",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Run RPC over RabbitMQ",
   "main": "index.js",
   "scripts": {
