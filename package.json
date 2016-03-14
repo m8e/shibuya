@@ -12,6 +12,7 @@
     "amqp": "^0.2.4",
     "baconjs": "^0.7.83",
     "lodash": "^4.6.1",
+    "murmurhash": "0.0.2",
     "node-uuid": "^1.4.7"
   }
 }
