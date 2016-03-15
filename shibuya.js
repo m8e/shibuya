@@ -67,6 +67,27 @@ module.exports = function(userConfiguration){
         ));
     }).toProperty();
 
+    // Feedback queue
+    var feedbackProperty = connectionProperty.flatMap(function(connection){
+        return Bacon.fromCallback(
+            connection.queue.bind(
+                connection,
+                nameTemplate('feedback', murmurhash.v3(CLIENT_ID).toString()),
+                { exclusive: true }
+            )
+        )
+        .combine(exchangeProperty, function(queue, exchange){
+            return {
+                queue: queue,
+                exchange: exchange
+            };
+        })
+        .flatMap(function(opts){
+            return Bacon.fromCallback(opts.queue.bind.bind(opts.queue, opts.exchange.name, opts.queue.name)).map(opts.queue);
+        })
+        .flatMap();
+    }).toProperty()
+
     return {
         registerService: (function(receiver){
             Bacon.combineTemplate({
@@ -156,34 +177,36 @@ module.exports = function(userConfiguration){
             Bacon.combineTemplate({
                 connection: connectionProperty,
                 exchange: exchangeProperty,
-                queue: connectionProperty.flatMap(function(connection){
-                    return Bacon.fromCallback(
-                        connection.queue.bind(
-                            connection,
-                            nameTemplate('feedback', murmurhash.v3(CLIENT_ID).toString()),
-                            { exclusive: true }
-                        )
-                    )
-                    .combine(exchangeProperty, function(queue, exchange){
-                        return {
-                            queue: queue,
-                            exchange: exchange
-                        };
-                    })
-                    .flatMap(function(opts){
-                        return Bacon.fromCallback(opts.queue.bind.bind(opts.queue, opts.exchange.name, opts.queue.name)).map(opts.queue);
-                    });
-                }).toProperty(),
-                params: Bacon.fromBinder(function(sink){
-                    receiver = function(name, method, properties, callback){
+                call: Bacon.fromBinder(function(sink){
+                    receiver = function(name, method, parameters, callback){
                         sink({
                             serviceId: nameTemplate('service', murmurhash.v3(name).toString()),
                             method: method,
-                            properties: properties || [],
-                            callback: callback || _.noop
+                            parameters: parameters || [],
+                            callback: callback || _.noop,
+                            id: uuid.v4()
                         });
                     };
                 })
+            })
+            .flatMap(function(opts){
+                Bacon
+                    .fromCallback(
+                        opts.exchange.publish.bind(
+                            opts.exchange,
+                            opts.call.serviceId,
+                            _.pick(opts.call, 'method', 'parameters'),
+                            {
+                                deliveryMode: AMQP_EXCHANGE_DELIVERY_MODE_NON_PERSISTENT,
+                                correlationId: opts.call.id,
+                                replyTo: opts.queue.name
+                            }
+                        )
+                    )
+                    .flatMap(function(){
+
+                    })
+
             })
             .log();
 
