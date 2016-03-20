@@ -7,10 +7,10 @@ var AMQP_RECONNECT_STRATEGY_LINEAR = "linear",
     AMQP_RECONNECT_BACKOFF_TIME = 1000,
     AMQP_EXCHANGE_TYPE_TOPIC = "topic",
     AMQP_EXCHANGE_DELIVERY_MODE_NON_PERSISTENT = 1,
-    RESPONSE_TIMEOUT = 3000,
-    CLIENT_ID = uuid.v4();
+    RESPONSE_TIMEOUT = 3000;
 
 module.exports = function(configuration){
+    var CLIENT_ID = uuid.v4();
 
     var sharedId = configuration["shared_id"] || "SHIBUYA";
 
